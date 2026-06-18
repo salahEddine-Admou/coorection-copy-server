@@ -7,7 +7,8 @@ const User = require('../models/User');
 // Register
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, password } = req.body;
+    const email = req.body.email.trim().toLowerCase();
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ msg: 'User already exists' });
 
@@ -30,7 +31,8 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = req.body.email.trim().toLowerCase();
     let user = await User.findOne({ email });
     if (!user) return res.status(400).json({ msg: 'Invalid credentials' });
 
