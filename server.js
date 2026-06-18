@@ -19,46 +19,33 @@ app.use('/api/submissions', require('./routes/submissions'));
 const PORT = process.env.PORT || 5000;
 
 // Vercel Serverless MongoDB Connection logic
-let cached = global.mongoose;
-
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
-}
-
-mongoose.set('bufferCommands', false); // Désactiver globalement le buffering
+let isConnecting = false;
 
 const connectDB = async () => {
-  // Si on a une connexion en cache ET qu'elle est active (readyState = 1)
-  if (cached.conn && mongoose.connection.readyState === 1) {
-    return cached.conn;
+  // Si la connexion est prête, on l'utilise
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
   }
 
-  // Si la connexion est morte (Vercel warm boot), on réinitialise le cache
-  if (mongoose.connection.readyState !== 1) {
-    cached.conn = null;
-    cached.promise = null;
+  // Si on est déjà en train de se connecter, on ne lance pas une 2e tentative
+  if (mongoose.connection.readyState === 2 || isConnecting) {
+    return;
   }
 
-  if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
-    };
-    
-    console.log('Connecting to MongoDB (New Connection/Reconnection)...');
-    cached.promise = mongoose.connect(process.env.MONGO_URI, opts).then((mongoose) => {
-      return mongoose;
-    });
-  }
-  
+  isConnecting = true;
+  console.log('Connecting to MongoDB...');
   try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      maxIdleTimeMS: 10000, // Ferme les sockets inactifs (Fix pour les Serverless Sleep)
+    });
+    console.log('MongoDB connected successfully');
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+  } finally {
+    isConnecting = false;
   }
-
-  return cached.conn;
 };
 
 // Ensure DB is connected for every request
@@ -67,7 +54,7 @@ app.use(async (req, res, next) => {
     await connectDB();
     next();
   } catch (err) {
-    console.error('MongoDB connection error:', err);
+    console.error('MongoDB connection middleware error:', err);
     res.status(500).json({ msg: 'Database connection failed' });
   }
 });
