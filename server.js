@@ -25,18 +25,27 @@ if (!cached) {
   cached = global.mongoose = { conn: null, promise: null };
 }
 
+mongoose.set('bufferCommands', false); // Désactiver globalement le buffering
+
 const connectDB = async () => {
-  if (cached.conn) {
+  // Si on a une connexion en cache ET qu'elle est active (readyState = 1)
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return cached.conn;
+  }
+
+  // Si la connexion est morte (Vercel warm boot), on réinitialise le cache
+  if (mongoose.connection.readyState !== 1) {
+    cached.conn = null;
+    cached.promise = null;
   }
 
   if (!cached.promise) {
     const opts = {
-      bufferCommands: false, // Ne pas attendre en cas de déconnexion
+      bufferCommands: false,
       serverSelectionTimeoutMS: 5000,
     };
     
-    console.log('Connecting to MongoDB (New Connection)...');
+    console.log('Connecting to MongoDB (New Connection/Reconnection)...');
     cached.promise = mongoose.connect(process.env.MONGO_URI, opts).then((mongoose) => {
       return mongoose;
     });
