@@ -19,17 +19,40 @@ app.use('/api/submissions', require('./routes/submissions'));
 const PORT = process.env.PORT || 5000;
 
 // Vercel Serverless MongoDB Connection logic
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 const connectDB = async () => {
-  if (mongoose.connection.readyState >= 1) {
-    return; // Already connected
+  if (cached.conn) {
+    return cached.conn;
   }
-  console.log('Connecting to MongoDB...');
-  return mongoose.connect(process.env.MONGO_URI, {
-    serverSelectionTimeoutMS: 5000,
-  });
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false, // Ne pas attendre en cas de déconnexion
+      serverSelectionTimeoutMS: 5000,
+    };
+    
+    console.log('Connecting to MongoDB (New Connection)...');
+    cached.promise = mongoose.connect(process.env.MONGO_URI, opts).then((mongoose) => {
+      return mongoose;
+    });
+  }
+  
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+
+  return cached.conn;
 };
 
-// Ensure DB is connected for every request (Serverless environments freeze connections)
+// Ensure DB is connected for every request
 app.use(async (req, res, next) => {
   try {
     await connectDB();
