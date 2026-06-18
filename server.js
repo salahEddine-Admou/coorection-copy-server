@@ -18,14 +18,32 @@ app.use('/api/submissions', require('./routes/submissions'));
 
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI)
-.then(() => {
-    console.log('MongoDB connected successfully');
-    if (require.main === module) {
-      app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-    }
-})
-.catch(err => console.error('MongoDB connection error:', err));
+// Vercel Serverless MongoDB Connection logic
+const connectDB = async () => {
+  if (mongoose.connection.readyState >= 1) {
+    return; // Already connected
+  }
+  console.log('Connecting to MongoDB...');
+  return mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+  });
+};
+
+// Ensure DB is connected for every request (Serverless environments freeze connections)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    res.status(500).json({ msg: 'Database connection failed' });
+  }
+});
+
+if (require.main === module) {
+  connectDB().then(() => {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  });
+}
 
 module.exports = app;
