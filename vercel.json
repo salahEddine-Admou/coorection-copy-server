@@ -5,7 +5,10 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": "node_modules/tesseract.js-core/**/*"
+        "includeFiles": [
+          "node_modules/tesseract.js-core/**/*",
+          "node_modules/tesseract.js/**/*"
+        ]
       }
     }
   ],

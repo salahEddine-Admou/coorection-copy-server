@@ -77,7 +77,19 @@ const gradeAnswerWithDeepSeek = async (imagePath, questionText, expectedKeywords
     // Fallback: Si le modèle ne supporte pas l'image, on utilise tesseract puis DeepSeek pour l'analyse
     console.log("Fallback: Utilisation de Tesseract pour l'OCR puis DeepSeek pour la logique");
     const Tesseract = require('tesseract.js');
-    const { data: { text } } = await Tesseract.recognize(imagePath, 'fra');
+    const path = require('path');
+    
+    // Vercel Serverless Hack : forcer les chemins absolus locaux car __dirname est cassé par le bundler
+    const workerPath = path.join(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
+    const corePath = path.join(process.cwd(), 'node_modules/tesseract.js-core/tesseract-core.wasm.js');
+    
+    const worker = await Tesseract.createWorker('fra', 1, {
+      workerPath,
+      corePath
+    });
+    
+    const { data: { text } } = await worker.recognize(imagePath);
+    await worker.terminate();
     
     return await gradeTextWithDeepSeek(text, questionText, expectedKeywords, maxScore);
   }
