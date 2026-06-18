@@ -25,12 +25,11 @@ if (!cached) {
 }
 
 const connectDB = async () => {
-  // Check if connection exists and seems alive
+  // 1. Si une connexion est prête, vérifier sa validité (Ping anti-gel Vercel)
   if (cached.conn && mongoose.connection.readyState === 1 && mongoose.connection.db) {
     try {
-      // Active Ping to detect silent Vercel drops (Max 400ms)
       const pingPromise = mongoose.connection.db.admin().ping();
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 400));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 500));
       await Promise.race([pingPromise, timeoutPromise]);
       return cached.conn;
     } catch (err) {
@@ -39,18 +38,24 @@ const connectDB = async () => {
       cached.conn = null;
       cached.promise = null;
     }
-  } else if (cached.conn) {
-    cached.conn = null;
-    cached.promise = null;
   }
 
-  if (!cached.promise) {
-    console.log('Connecting to MongoDB...');
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    }).then(mongoose => mongoose);
+  // 2. Si une connexion est déjà en cours d'initialisation, on l'attend ! (Fix concurrence)
+  if (cached.promise) {
+    try {
+      cached.conn = await cached.promise;
+      return cached.conn;
+    } catch (err) {
+      cached.promise = null;
+    }
   }
+
+  // 3. Nouvelle connexion
+  console.log('Connecting to MongoDB...');
+  cached.promise = mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  }).then(mongoose => mongoose);
   
   try {
     cached.conn = await cached.promise;
