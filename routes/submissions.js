@@ -7,10 +7,12 @@ const Submission = require('../models/Submission');
 const Exam = require('../models/Exam');
 const { gradeAnswerWithDeepSeek } = require('../services/ocrService');
 
-// Configure Multer for image uploads
+const os = require('os');
+
+// Configure Multer for image uploads (using /tmp for Vercel compatibility)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+    cb(null, os.tmpdir());
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + path.extname(file.originalname)); // Appending extension
