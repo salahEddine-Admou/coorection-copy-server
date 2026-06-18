@@ -10,11 +10,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/students', require('./routes/students'));
-app.use('/api/exams', require('./routes/exams'));
-app.use('/api/submissions', require('./routes/submissions'));
+// Routes will be registered after middleware
 
 const PORT = process.env.PORT || 5000;
 
@@ -69,7 +65,7 @@ const connectDB = async () => {
   return cached.conn;
 };
 
-// Ensure DB is connected for every request
+// Ensure DB is connected for every request BEFORE hitting routes
 app.use(async (req, res, next) => {
   try {
     await connectDB();
@@ -79,6 +75,12 @@ app.use(async (req, res, next) => {
     res.status(500).json({ msg: 'Database connection failed' });
   }
 });
+
+// Routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/students', require('./routes/students'));
+app.use('/api/exams', require('./routes/exams'));
+app.use('/api/submissions', require('./routes/submissions'));
 
 if (require.main === module) {
   connectDB().then(() => {
