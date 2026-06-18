@@ -72,7 +72,7 @@ router.post('/grade/:examId/:studentId', auth, upload.single('scannedImage'), as
     res.json(submission);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
 
