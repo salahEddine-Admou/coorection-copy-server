@@ -25,15 +25,23 @@ if (!cached) {
 }
 
 const connectDB = async () => {
-  // Reset cache if connection is dead
-  if (cached.conn && mongoose.connection.readyState !== 1) {
-    console.log('Dead socket detected. Resetting cache...');
+  // Check if connection exists and seems alive
+  if (cached.conn && mongoose.connection.readyState === 1 && mongoose.connection.db) {
+    try {
+      // Active Ping to detect silent Vercel drops (Max 400ms)
+      const pingPromise = mongoose.connection.db.admin().ping();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 400));
+      await Promise.race([pingPromise, timeoutPromise]);
+      return cached.conn;
+    } catch (err) {
+      console.log('Dead socket detected on Ping. Reconnecting...');
+      await mongoose.disconnect().catch(() => {});
+      cached.conn = null;
+      cached.promise = null;
+    }
+  } else if (cached.conn) {
     cached.conn = null;
     cached.promise = null;
-  }
-
-  if (cached.conn) {
-    return cached.conn;
   }
 
   if (!cached.promise) {
@@ -41,7 +49,6 @@ const connectDB = async () => {
     cached.promise = mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      maxIdleTimeMS: 10000, // Ferme proprement les sockets inactifs
     }).then(mongoose => mongoose);
   }
   
