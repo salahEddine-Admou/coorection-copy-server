@@ -19,33 +19,42 @@ app.use('/api/submissions', require('./routes/submissions'));
 const PORT = process.env.PORT || 5000;
 
 // Vercel Serverless MongoDB Connection logic
-let isConnecting = false;
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 const connectDB = async () => {
-  // Si la connexion est prête, on l'utilise
-  if (mongoose.connection.readyState === 1) {
-    return mongoose.connection;
+  // Reset cache if connection is dead
+  if (cached.conn && mongoose.connection.readyState !== 1) {
+    console.log('Dead socket detected. Resetting cache...');
+    cached.conn = null;
+    cached.promise = null;
   }
 
-  // Si on est déjà en train de se connecter, on ne lance pas une 2e tentative
-  if (mongoose.connection.readyState === 2 || isConnecting) {
-    return;
+  if (cached.conn) {
+    return cached.conn;
   }
 
-  isConnecting = true;
-  console.log('Connecting to MongoDB...');
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
+  if (!cached.promise) {
+    console.log('Connecting to MongoDB...');
+    cached.promise = mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      maxIdleTimeMS: 10000, // Ferme les sockets inactifs (Fix pour les Serverless Sleep)
-    });
+      maxIdleTimeMS: 10000, // Ferme proprement les sockets inactifs
+    }).then(mongoose => mongoose);
+  }
+  
+  try {
+    cached.conn = await cached.promise;
     console.log('MongoDB connected successfully');
   } catch (err) {
+    cached.promise = null;
     console.error('MongoDB connection error:', err);
-  } finally {
-    isConnecting = false;
+    throw err;
   }
+  
+  return cached.conn;
 };
 
 // Ensure DB is connected for every request
