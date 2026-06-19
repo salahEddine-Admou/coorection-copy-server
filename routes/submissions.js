@@ -110,7 +110,9 @@ router.post('/scan', auth, upload.single('scannedImage'), async (req, res) => {
         extractedText: result.extractedText,
         score: result.score,
         isCorrect: result.isCorrect,
-        justification: result.justification
+        justification: result.justification,
+        plagiarismRisk: result.plagiarismRisk || 'low',
+        plagiarismDetails: result.plagiarismDetails || ''
       });
     }
 

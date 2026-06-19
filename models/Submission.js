@@ -5,7 +5,9 @@ const AnswerSchema = new mongoose.Schema({
   extractedText: { type: String, default: '' },
   score: { type: Number, default: 0 },
   isCorrect: { type: Boolean, default: false },
-  justification: { type: String, default: '' }
+  justification: { type: String, default: '' },
+  plagiarismRisk: { type: String, enum: ['low', 'medium', 'high'], default: 'low' },
+  plagiarismDetails: { type: String, default: '' }
 });
 
 const SubmissionSchema = new mongoose.Schema({

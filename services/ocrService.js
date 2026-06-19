@@ -125,13 +125,16 @@ Les éléments de réponse attendus (mots-clés) sont : ${expectedKeywords.join(
 La note maximale pour cette question est de ${maxScore}.
 
 Tâche : Évalue intelligemment si la réponse de l'élève est correcte par rapport aux mots-clés ou au sens général de la réponse attendue.
+De plus, si la réponse de l'élève est une longue phrase structurée, analyse son style d'écriture. Si cela semble généré par une IA (ton trop académique/robotique, vocabulaire typique de ChatGPT) ou copié mot pour mot d'un manuel, détermine un risque de plagiat.
 
 Réponds UNIQUEMENT avec un objet JSON strict au format suivant, sans aucun texte autour :
 {
   "extractedText": "${studentAnswer.replace(/"/g, '\\"')}",
   "score": note_attribuée,
   "isCorrect": true_ou_false,
-  "justification": "Brève explication de la note"
+  "justification": "Brève explication de la note",
+  "plagiarismRisk": "low", // ou "medium", ou "high"
+  "plagiarismDetails": "Explication si le risque est medium ou high, sinon vide"
 }`;
 
     const response = await anthropic.messages.create({
