@@ -166,8 +166,23 @@ router.post('/scan', auth, upload.single('scannedImage'), async (req, res) => {
 // Get all submissions for an exam
 router.get('/exam/:examId', auth, async (req, res) => {
   try {
-    const submissions = await Submission.find({ exam: req.params.examId }).populate('student', ['firstName', 'lastName', 'matricule']);
-    res.json(submissions);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const total = await Submission.countDocuments({ exam: req.params.examId });
+    const submissions = await Submission.find({ exam: req.params.examId })
+      .populate('student', ['firstName', 'lastName', 'matricule'])
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    res.json({
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      submissions,
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
@@ -203,6 +218,34 @@ router.put('/replace/:id', auth, async (req, res) => {
     
     await existing.save();
     res.json(existing);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Export exam results as CSV
+router.get('/exam/:examId/export', auth, async (req, res) => {
+  try {
+    const format = req.query.format || 'csv';
+    const submissions = await Submission.find({ exam: req.params.examId })
+      .populate('student', ['firstName', 'lastName', 'matricule'])
+      .sort({ createdAt: -1 });
+
+    if (format === 'csv') {
+      const { Parser } = require('json2csv');
+      const fields = ['student.firstName', 'student.lastName', 'student.matricule', 'totalScore', 'createdAt'];
+      const parser = new Parser({ fields });
+      const csv = parser.parse(submissions.map(s => ({
+        student: s.student,
+        totalScore: s.totalScore,
+        createdAt: s.createdAt,
+      })));
+      res.header('Content-Type', 'text/csv');
+      res.attachment(`exam_${req.params.examId}_results.csv`);
+      return res.send(csv);
+    }
+    return res.status(400).json({ msg: 'Unsupported format' });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
