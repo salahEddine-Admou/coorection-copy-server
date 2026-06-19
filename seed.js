@@ -18,14 +18,14 @@ const seedDB = async () => {
 
     // 1. Créer un professeur
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('password123', salt);
+    const hashedPassword = await bcrypt.hash('Ad@m2026', salt);
     const prof = new User({
-      name: 'Professeur Test',
-      email: 'prof@test.com',
+      name: 'Adam',
+      email: 'adam@gmail.com',
       password: hashedPassword
     });
     await prof.save();
-    console.log('Professeur créé: prof@test.com / password123');
+    console.log('Professeur créé: adam@gmail.com / Ad@m2026');
 
     // 2. Créer des élèves
     const students = await Student.insertMany([

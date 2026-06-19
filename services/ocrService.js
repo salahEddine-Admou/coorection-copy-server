@@ -1,9 +1,8 @@
 const fs = require('fs');
-const { OpenAI } = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
 
-const openai = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey: process.env.DEEPSEEK_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 /**
@@ -15,127 +14,143 @@ function encodeImage(imagePath) {
 }
 
 /**
- * Utilise DeepSeek pour extraire le texte et corriger la réponse.
+ * Détecte le type MIME à partir des magic bytes du fichier
  */
-const gradeAnswerWithDeepSeek = async (imagePath, questionText, expectedKeywords, maxScore) => {
+function getMediaType(imagePath) {
+  const buffer = fs.readFileSync(imagePath);
+  // Check magic bytes
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+    return 'image/png';
+  }
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+    return 'image/gif';
+  }
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
+    return 'image/webp';
+  }
+  // Fallback: try extension
+  const ext = imagePath.toLowerCase().split('.').pop();
+  const types = { 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp' };
+  return types[ext] || 'image/jpeg';
+}
+
+/**
+ * Analyse complète d'une copie d'examen avec Claude Vision.
+ * Extrait en un seul appel : nom de l'élève, titre de l'examen, et toutes les réponses.
+ */
+const analyzeExamCopy = async (imagePath) => {
   try {
     const base64Image = encodeImage(imagePath);
+    const mediaType = getMediaType(imagePath);
+    const fileSize = fs.statSync(imagePath).size;
 
-    const prompt = `
-      Tu es un professeur expert qui corrige des copies d'examen.
-      Voici une image scannée de la copie d'un élève. 
-      La question posée était : "${questionText}".
-      Les éléments de réponse attendus (mots-clés) sont : ${expectedKeywords.join(', ')}.
-      La note maximale pour cette question est de ${maxScore}.
-      
-      Tâche :
-      1. Extraire le texte lu sur l'image (OCR).
-      2. Comparer le texte extrait avec la réponse attendue de manière intelligente.
-      3. Attribuer une note (entre 0 et ${maxScore}).
-      
-      Réponds UNIQUEMENT avec un objet JSON strict au format suivant, sans bloc de code markdown (pas de \`\`\`json):
-      {
-        "extractedText": "Le texte lu sur l'image",
-        "score": note_attribuée,
-        "isCorrect": true_ou_false,
-        "justification": "Brève explication de la note"
-      }
-    `;
+    console.log('analyzeExamCopy: fichier =', imagePath, '| taille =', fileSize, 'bytes | type =', mediaType);
 
-    const response = await openai.chat.completions.create({
-      model: "deepseek-chat", // Or deepseek-vision if they added one, but standard chat is recommended as default endpoint
+    const prompt = `Tu es un assistant intelligent qui analyse des copies d'examen scannées.
+Voici une image scannée d'une copie d'examen remplie par un élève.
+
+Tâche :
+1. Extraire le TITRE de l'examen écrit sur la copie.
+2. Extraire le NOM COMPLET de l'élève écrit sur la copie.
+3. Pour CHAQUE question visible sur la copie, extraire :
+   - Le numéro de la question
+   - Le texte de la question
+   - La réponse écrite par l'élève
+
+Réponds UNIQUEMENT avec un objet JSON strict au format suivant, sans aucun texte autour :
+{
+  "examTitle": "Le titre de l'examen extrait de la copie",
+  "studentName": "Le nom complet de l'élève extrait de la copie",
+  "answers": [
+    {
+      "questionNumber": 1,
+      "questionText": "Le texte de la question",
+      "studentAnswer": "La réponse écrite par l'élève"
+    }
+  ]
+}`;
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2048,
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
             {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: base64Image,
+              },
+            },
+            {
+              type: "text",
+              text: prompt,
+            },
           ],
         },
       ],
-      response_format: { type: "json_object" }
     });
 
-    const resultStr = response.choices[0].message.content;
-    const resultObj = JSON.parse(resultStr);
+    const resultStr = response.content[0].text;
+    const jsonMatch = resultStr.match(/\{[\s\S]*\}/);
+    const resultObj = JSON.parse(jsonMatch ? jsonMatch[0] : resultStr);
+    console.log('analyzeExamCopy: Résultat:', JSON.stringify(resultObj, null, 2));
+    return resultObj;
+
+  } catch (err) {
+    console.error('analyzeExamCopy Error:', err.message);
+    throw new Error('Erreur lors de l\'analyse de la copie: ' + err.message);
+  }
+};
+
+/**
+ * Corrige une réponse d'élève par rapport aux mots-clés attendus avec Claude.
+ */
+const gradeAnswer = async (studentAnswer, questionText, expectedKeywords, maxScore) => {
+  try {
+    const prompt = `Tu es un professeur expert qui corrige des copies d'examen.
+La question posée était : "${questionText}".
+La réponse de l'élève est : "${studentAnswer}".
+Les éléments de réponse attendus (mots-clés) sont : ${expectedKeywords.join(', ')}.
+La note maximale pour cette question est de ${maxScore}.
+
+Tâche : Évalue intelligemment si la réponse de l'élève est correcte par rapport aux mots-clés ou au sens général de la réponse attendue.
+
+Réponds UNIQUEMENT avec un objet JSON strict au format suivant, sans aucun texte autour :
+{
+  "extractedText": "${studentAnswer.replace(/"/g, '\\"')}",
+  "score": note_attribuée,
+  "isCorrect": true_ou_false,
+  "justification": "Brève explication de la note"
+}`;
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 512,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const resultStr = response.content[0].text;
+    const jsonMatch = resultStr.match(/\{[\s\S]*\}/);
+    const resultObj = JSON.parse(jsonMatch ? jsonMatch[0] : resultStr);
 
     return {
-      extractedText: resultObj.extractedText || "Texte non trouvé",
+      extractedText: resultObj.extractedText || studentAnswer,
       score: resultObj.score || 0,
       isCorrect: resultObj.isCorrect || false,
       justification: resultObj.justification || ""
     };
 
   } catch (err) {
-    console.error('DeepSeek Vision/OCR Error:', err.message);
-    
-    // Fallback: Si le modèle ne supporte pas l'image, on utilise tesseract puis DeepSeek pour l'analyse
-    console.log("Fallback: Utilisation de Tesseract pour l'OCR puis DeepSeek pour la logique");
-    const Tesseract = require('tesseract.js');
-    const path = require('path');
-    
-    // Vercel Serverless Hack : forcer les chemins absolus locaux car __dirname est cassé par le bundler
-    const workerPath = path.join(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
-    const corePath = path.join(process.cwd(), 'node_modules/tesseract.js-core/tesseract-core.wasm.js');
-    
-    const worker = await Tesseract.createWorker('fra', 1, {
-      workerPath,
-      corePath
-    });
-    
-    const { data: { text } } = await worker.recognize(imagePath);
-    await worker.terminate();
-    
-    return await gradeTextWithDeepSeek(text, questionText, expectedKeywords, maxScore);
+    console.error('gradeAnswer Error:', err.message);
+    return { extractedText: studentAnswer, score: 0, isCorrect: false, justification: "Erreur API: " + err.message };
   }
 };
 
-/**
- * Fallback fonction si DeepSeek n'accepte pas l'image directement : 
- * Analyse un texte pré-extrait (par Tesseract) avec DeepSeek
- */
-const gradeTextWithDeepSeek = async (extractedText, questionText, expectedKeywords, maxScore) => {
-    try {
-        const prompt = `
-          Tu es un professeur expert qui corrige des copies d'examen.
-          Voici le texte extrait (par OCR) de la copie d'un élève : "${extractedText}".
-          La question posée était : "${questionText}".
-          Les éléments de réponse attendus (mots-clés) sont : ${expectedKeywords.join(', ')}.
-          La note maximale pour cette question est de ${maxScore}.
-          
-          Tâche : Évalue intelligemment si la réponse de l'élève est correcte par rapport aux mots-clés ou au sens général de la réponse attendue.
-          
-          Réponds UNIQUEMENT avec un objet JSON strict au format suivant, sans bloc de code markdown (pas de \`\`\`json):
-          {
-            "extractedText": "${extractedText.replace(/"/g, '\\"')}",
-            "score": note_attribuée,
-            "isCorrect": true_ou_false,
-            "justification": "Brève explication de la note"
-          }
-        `;
-
-        const response = await openai.chat.completions.create({
-            model: "deepseek-chat",
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" }
-        });
-
-        const resultObj = JSON.parse(response.choices[0].message.content);
-        return {
-            extractedText: resultObj.extractedText || extractedText,
-            score: resultObj.score || 0,
-            isCorrect: resultObj.isCorrect || false,
-            justification: resultObj.justification || ""
-        };
-    } catch (err) {
-        console.error("DeepSeek Fallback Error:", err);
-        return { extractedText, score: 0, isCorrect: false, justification: "Erreur API" };
-    }
-}
-
-module.exports = { gradeAnswerWithDeepSeek };
+module.exports = { analyzeExamCopy, gradeAnswer };
