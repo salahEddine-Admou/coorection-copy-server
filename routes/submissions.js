@@ -114,16 +114,37 @@ router.post('/scan', auth, upload.single('scannedImage'), async (req, res) => {
       });
     }
 
-    // Étape 5 : Sauvegarder la soumission
-    const submission = new Submission({
+    // Étape 5 : Vérifier s'il y a déjà des copies pour cet élève et cet examen
+    const existingSubmissions = await Submission.find({ exam: matchedExam._id, student: matchedStudent._id }).sort({ createdAt: -1 });
+
+    const submissionData = {
       exam: matchedExam._id,
       student: matchedStudent._id,
       scannedImage: imagePath,
       answers: answers,
       totalScore: totalScore,
       status: 'graded'
-    });
+    };
 
+    const enrichedResult = {
+      ...submissionData,
+      examTitle: matchedExam.title,
+      studentName: `${matchedStudent.firstName} ${matchedStudent.lastName}`,
+      totalPoints: matchedExam.totalPoints
+    };
+
+    if (existingSubmissions.length > 0) {
+      // Retourner un conflit avec les données pour que le front demande confirmation
+      return res.json({
+        conflict: true,
+        unsavedSubmission: submissionData,
+        enrichedResult: enrichedResult,
+        existingSubmissions: existingSubmissions
+      });
+    }
+
+    // Aucune copie existante, on sauvegarde directement
+    const submission = new Submission(submissionData);
     await submission.save();
 
     // Retourner le résultat enrichi
@@ -145,6 +166,41 @@ router.get('/exam/:examId', auth, async (req, res) => {
   try {
     const submissions = await Submission.find({ exam: req.params.examId }).populate('student', ['firstName', 'lastName', 'matricule']);
     res.json(submissions);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Confirmer l'ajout d'une nouvelle copie (en cas de doublon)
+router.post('/confirm-new', auth, async (req, res) => {
+  try {
+    const submission = new Submission(req.body.submissionData);
+    await submission.save();
+    res.json(submission);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Remplacer une copie existante
+router.put('/replace/:id', auth, async (req, res) => {
+  try {
+    const existing = await Submission.findById(req.params.id);
+    if (!existing) return res.status(404).json({ msg: 'Submission not found' });
+    
+    // Mettre à jour avec les nouvelles données
+    const { scannedImage, answers, totalScore, status } = req.body.submissionData;
+    
+    existing.scannedImage = scannedImage;
+    existing.answers = answers;
+    existing.totalScore = totalScore;
+    existing.status = status;
+    existing.createdAt = Date.now(); // Update the timestamp
+    
+    await existing.save();
+    res.json(existing);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
