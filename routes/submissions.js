@@ -30,12 +30,18 @@ router.post('/scan', auth, upload.single('scannedImage'), async (req, res) => {
 
     const imagePath = req.file.path;
 
-    // Étape 1 : Claude analyse toute la copie en un seul appel
-    console.log('=== SCAN: Analyse de la copie ===');
-    const analysis = await analyzeExamCopy(imagePath);
-
-    // Étape 2 : Trouver l'examen correspondant dans la base
+    // Étape 1 : Récupérer les listes connues pour aider l'OCR avec l'écriture manuscrite
     const exams = await Exam.find({ professor: req.user.id });
+    const students = await Student.find({ professor: req.user.id });
+    
+    const availableExams = exams.map(e => e.title);
+    const availableStudents = students.map(s => `${s.firstName} ${s.lastName}`);
+
+    // Étape 2 : Claude analyse toute la copie en un seul appel
+    console.log('=== SCAN: Analyse de la copie ===');
+    const analysis = await analyzeExamCopy(imagePath, availableStudents, availableExams);
+
+    // Étape 3 : Trouver l'examen correspondant dans la base
     let matchedExam = null;
     
     if (analysis.examTitle) {
@@ -55,8 +61,7 @@ router.post('/scan', auth, upload.single('scannedImage'), async (req, res) => {
       });
     }
 
-    // Étape 3 : Trouver l'élève correspondant dans la base
-    const students = await Student.find({ professor: req.user.id });
+    // Étape 4 : Trouver l'élève correspondant dans la base
     let matchedStudent = null;
 
     if (analysis.studentName) {

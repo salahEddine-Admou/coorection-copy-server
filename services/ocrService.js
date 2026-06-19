@@ -41,7 +41,7 @@ function getMediaType(imagePath) {
  * Analyse complète d'une copie d'examen avec Claude Vision.
  * Extrait en un seul appel : nom de l'élève, titre de l'examen, et toutes les réponses.
  */
-const analyzeExamCopy = async (imagePath) => {
+const analyzeExamCopy = async (imagePath, availableStudents = [], availableExams = []) => {
   try {
     const base64Image = encodeImage(imagePath);
     const mediaType = getMediaType(imagePath);
@@ -52,9 +52,13 @@ const analyzeExamCopy = async (imagePath) => {
     const prompt = `Tu es un assistant intelligent qui analyse des copies d'examen scannées.
 Voici une image scannée d'une copie d'examen remplie par un élève.
 
+Informations connues (pour t'aider à déchiffrer l'écriture manuscrite souvent très difficile à lire) :
+- Liste des noms d'élèves possibles : ${availableStudents.length > 0 ? availableStudents.join(', ') : 'Inconnue'}
+- Liste des titres d'examens possibles : ${availableExams.length > 0 ? availableExams.join(', ') : 'Inconnue'}
+
 Tâche :
-1. Extraire le TITRE de l'examen écrit sur la copie.
-2. Extraire le NOM COMPLET de l'élève écrit sur la copie.
+1. Extraire le TITRE de l'examen écrit sur la copie. (Utilise la liste fournie pour deviner le titre exact si l'écriture est mauvaise).
+2. Extraire le NOM COMPLET de l'élève écrit sur la copie. (TRÈS IMPORTANT: Utilise la liste des élèves fournie pour deviner le nom exact de l'élève. Même si l'écriture est illisible ou que le nom de famille et le prénom sont inversés, trouve la meilleure correspondance dans la liste).
 3. Pour CHAQUE question visible sur la copie, extraire :
    - Le numéro de la question
    - Le texte de la question
