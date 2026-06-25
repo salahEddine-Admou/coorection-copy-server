@@ -21,7 +21,7 @@
     "form-data": "^4.0.6",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.7.1",
+    "mongoose": "^8.24.0",
     "multer": "^2.2.0",
     "nodemon": "^3.1.14",
     "openai": "^6.44.0",

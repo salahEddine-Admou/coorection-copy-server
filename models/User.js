@@ -4,6 +4,12 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  gradingProfile: {
+    severityOffset: { type: Number, default: 0 },
+    implicitCriteria: [{ type: String }],
+    styleDirectives: { type: String, default: '' },
+    lastUpdated: { type: Date, default: Date.now }
+  },
   createdAt: { type: Date, default: Date.now }
 });
 
